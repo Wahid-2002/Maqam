@@ -113,6 +113,30 @@ plt.title('Confusion Matrix')
 plt.savefig('confusion_matrix.png')
 plt.close()
 
-# Save the model
+# Save the model (do this before evaluation to ensure it's saved)
 joblib.dump(clf, 'maqam_identifier_model.joblib')
 print("Model saved as maqam_identifier_model.joblib")
+
+# Evaluate the classifier
+print("Evaluating classifier...")
+y_pred = clf.predict(X_test)
+
+# Print classification report
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+
+# Plot confusion matrix
+try:
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=maqams, yticklabels=maqams)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    plt.savefig('confusion_matrix.png')
+    plt.close()
+    print("Confusion matrix saved as confusion_matrix.png")
+except Exception as e:
+    print(f"Error creating confusion matrix: {e}")
+
+print("Training completed successfully")
