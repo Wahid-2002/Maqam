@@ -19,6 +19,8 @@
         .result { margin-top: 10px; padding: 10px; background-color: #e9f7ef; border-radius: 4px; }
         .error { color: red; background-color: #ffebee; }
         .training-status { margin-top: 10px; padding: 10px; background-color: #e3f2fd; border-radius: 4px; }
+        .progress-bar { height: 20px; background-color: #e0e0e0; border-radius: 10px; margin-top: 10px; }
+        .progress-fill { height: 100%; background-color: #4CAF50; border-radius: 10px; transition: width 0.3s; }
         .predictions-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         .predictions-table th, .predictions-table td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
         .predictions-table th { background-color: #f2f2f2; }
@@ -29,6 +31,7 @@
         .description ol { padding-left: 20px; }
         .description li { margin-bottom: 8px; }
         #output { margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; border-radius: 4px; }
+        .status-info { display: flex; justify-content: space-between; margin-bottom: 5px; }
     </style>
 </head>
 <body>
@@ -122,7 +125,7 @@
             
             trainBtn.disabled = true;
             statusDiv.style.display = 'block';
-            statusDiv.textContent = 'Starting training...';
+            statusDiv.innerHTML = '<div>Starting training...</div><div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>';
             
             try {
                 const response = await fetch('/train', {
@@ -131,12 +134,12 @@
                 });
                 
                 const data = await response.json();
-                statusDiv.textContent = data.message;
+                statusDiv.innerHTML = `<div>${data.message}</div><div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>`;
                 
                 // Poll for training status
                 pollTrainingStatus();
             } catch (error) {
-                statusDiv.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+                statusDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
                 trainBtn.disabled = false;
             }
         });
@@ -144,6 +147,8 @@
         function pollTrainingStatus() {
             const statusDiv = document.getElementById('trainingStatus');
             const trainBtn = document.getElementById('trainBtn');
+            let consecutiveErrors = 0;
+            const maxConsecutiveErrors = 3;
             
             const interval = setInterval(async () => {
                 try {
@@ -152,24 +157,52 @@
                     if (!response.ok) {
                         // If response is not OK, get the text and display it
                         const text = await response.text();
-                        statusDiv.innerHTML = `<span class="error">Error checking status: ${response.status} ${response.statusText}</span><pre>${text}</pre>`;
-                        clearInterval(interval);
-                        trainBtn.disabled = false;
+                        statusDiv.innerHTML = `<div class="error">Error checking status: ${response.status} ${response.statusText}</div><pre>${text}</pre>`;
+                        consecutiveErrors++;
+                        
+                        if (consecutiveErrors >= maxConsecutiveErrors) {
+                            clearInterval(interval);
+                            trainBtn.disabled = false;
+                            statusDiv.innerHTML += '<div class="error">Too many consecutive errors. Stopping status checks.</div>';
+                        }
                         return;
                     }
                     
+                    // Reset error counter on successful response
+                    consecutiveErrors = 0;
+                    
                     const data = await response.json();
                     
-                    statusDiv.textContent = data.status;
+                    // Update status display
+                    let statusHtml = `<div>${data.status}</div>`;
+                    
+                    if (data.elapsed_time) {
+                        statusHtml += `<div class="status-info"><span>Elapsed time: ${data.elapsed_time}</span><span>Progress: ${data.progress}%</span></div>`;
+                    } else {
+                        statusHtml += `<div>Progress: ${data.progress}%</div>`;
+                    }
+                    
+                    statusHtml += `<div class="progress-bar"><div class="progress-fill" style="width: ${data.progress}%"></div></div>`;
+                    
+                    if (data.error) {
+                        statusHtml += `<div class="error">Error: ${data.error}</div>`;
+                    }
+                    
+                    statusDiv.innerHTML = statusHtml;
                     
                     if (!data.in_progress) {
                         clearInterval(interval);
                         trainBtn.disabled = false;
                     }
                 } catch (error) {
-                    statusDiv.innerHTML = `<span class="error">Error checking status: ${error.message}</span>`;
-                    clearInterval(interval);
-                    trainBtn.disabled = false;
+                    statusDiv.innerHTML = `<div class="error">Error checking status: ${error.message}</div>`;
+                    consecutiveErrors++;
+                    
+                    if (consecutiveErrors >= maxConsecutiveErrors) {
+                        clearInterval(interval);
+                        trainBtn.disabled = false;
+                        statusDiv.innerHTML += '<div class="error">Too many consecutive errors. Stopping status checks.</div>';
+                    }
                 }
             }, 2000);
         }
