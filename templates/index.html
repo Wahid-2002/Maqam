@@ -1,70 +1,216 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Maqam Identifier Test</title>
+    <title>Maqam Identifier</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        button { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .section-title { font-weight: bold; margin-bottom: 10px; color: #444; }
+        button { padding: 10px 15px; background: #4CAF50; color: white; border: none; cursor: pointer; border-radius: 4px; margin: 5px; }
         button:hover { background: #45a049; }
-        #output { margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; }
-        .error { color: red; }
-        .status { margin-bottom: 10px; font-weight: bold; }
+        button:disabled { background: #cccccc; cursor: not-allowed; }
+        .file-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        .file-item { padding: 15px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; }
+        .file-name { font-weight: bold; margin-bottom: 10px; }
+        .predict-btn { background: #2196F3; }
+        .predict-btn:hover { background: #0b7dda; }
+        .result { margin-top: 10px; padding: 10px; background-color: #e9f7ef; border-radius: 4px; }
+        .error { color: red; background-color: #ffebee; }
+        .training-status { margin-top: 10px; padding: 10px; background-color: #e3f2fd; border-radius: 4px; }
+        .predictions-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .predictions-table th, .predictions-table td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        .predictions-table th { background-color: #f2f2f2; }
+        .confidence-bar { height: 10px; background-color: #e0e0e0; border-radius: 5px; margin-top: 5px; }
+        .confidence-fill { height: 100%; background-color: #4CAF50; border-radius: 5px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Maqam Identifier Test</h1>
-        <p>This will train the model (if needed) and run tests on your dataset.</p>
-        <button id="runTests">Run Tests</button>
-        <div id="output"></div>
+        <h1>Maqam Identifier</h1>
+        
+        <div class="section">
+            <div class="section-title">Model Training</div>
+            <button id="trainBtn">Train Model</button>
+            <button id="predictAllBtn">Predict All Test Files</button>
+            <div id="trainingStatus" class="training-status" style="display: none;"></div>
+        </div>
+        
+        <div class="section">
+            <div class="section-title">Test Files</div>
+            <div id="fileList" class="file-list">
+                {% for file in test_files %}
+                <div class="file-item">
+                    <div class="file-name">{{ file }}</div>
+                    <button class="predict-btn" data-filename="{{ file }}">Predict Maqam</button>
+                    <div id="result-{{ file }}" class="result" style="display: none;"></div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <div id="allResults" class="section" style="display: none;">
+            <div class="section-title">All Predictions</div>
+            <table class="predictions-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Predicted Maqam</th>
+                        <th>Confidence</th>
+                    </tr>
+                </thead>
+                <tbody id="allResultsBody">
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
-        document.getElementById('runTests').addEventListener('click', async () => {
-            const outputDiv = document.getElementById('output');
-            outputDiv.innerHTML = '<div class="status">Running tests...</div>';
+        // Training functionality
+        document.getElementById('trainBtn').addEventListener('click', async () => {
+            const trainBtn = document.getElementById('trainBtn');
+            const statusDiv = document.getElementById('trainingStatus');
+            
+            trainBtn.disabled = true;
+            statusDiv.style.display = 'block';
+            statusDiv.textContent = 'Starting training...';
             
             try {
-                const response = await fetch('/run_tests', {
+                const response = await fetch('/train', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
                 
-                // Check if response is JSON
-                const contentType = response.headers.get('content-type');
-                if (!contentType || !contentType.includes('application/json')) {
-                    // If not JSON, get the text and display it
-                    const text = await response.text();
-                    outputDiv.innerHTML = `
-                        <div class="status error">Error: Server returned non-JSON response</div>
-                        <div>Status: ${response.status} ${response.statusText}</div>
-                        <div>Content-Type: ${contentType}</div>
-                        <div>Response:</div>
-                        <pre>${text}</pre>
-                    `;
-                    return;
+                const data = await response.json();
+                statusDiv.textContent = data.message;
+                
+                // Poll for training status
+                pollTrainingStatus();
+            } catch (error) {
+                statusDiv.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+                trainBtn.disabled = false;
+            }
+        });
+        
+        function pollTrainingStatus() {
+            const statusDiv = document.getElementById('trainingStatus');
+            const trainBtn = document.getElementById('trainBtn');
+            
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch('/training_status');
+                    const data = await response.json();
+                    
+                    statusDiv.textContent = data.status;
+                    
+                    if (!data.in_progress) {
+                        clearInterval(interval);
+                        trainBtn.disabled = false;
+                    }
+                } catch (error) {
+                    statusDiv.innerHTML = `<span class="error">Error checking status: ${error.message}</span>`;
+                    clearInterval(interval);
+                    trainBtn.disabled = false;
                 }
+            }, 2000);
+        }
+        
+        // Predict all files
+        document.getElementById('predictAllBtn').addEventListener('click', async () => {
+            const predictAllBtn = document.getElementById('predictAllBtn');
+            const allResultsDiv = document.getElementById('allResults');
+            const allResultsBody = document.getElementById('allResultsBody');
+            
+            predictAllBtn.disabled = true;
+            allResultsDiv.style.display = 'block';
+            allResultsBody.innerHTML = '<tr><td colspan="3">Processing all files...</td></tr>';
+            
+            try {
+                const response = await fetch('/predict_all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
                 
                 const data = await response.json();
                 
-                if (data.status === 'success') {
-                    outputDiv.innerHTML = `
-                        <div class="status">Tests completed successfully</div>
-                        <div>${data.output}</div>
-                    `;
-                    if (data.error) {
-                        outputDiv.innerHTML += `<div class="error">Warnings/Errors:\n${data.error}</div>`;
-                    }
+                if (data.error) {
+                    allResultsBody.innerHTML = `<tr><td colspan="3" class="error">${data.error}</td></tr>`;
                 } else {
-                    outputDiv.innerHTML = `
-                        <div class="status error">Error: ${data.error}</div>
-                        ${data.output ? `<div>Output:\n${data.output}</div>` : ''}
-                    `;
+                    allResultsBody.innerHTML = '';
+                    
+                    data.results.forEach(result => {
+                        const row = document.createElement('tr');
+                        
+                        if (result.error) {
+                            row.innerHTML = `
+                                <td>${result.file}</td>
+                                <td colspan="2" class="error">${result.error}</td>
+                            `;
+                        } else {
+                            row.innerHTML = `
+                                <td>${result.file}</td>
+                                <td>${result.prediction}</td>
+                                <td>
+                                    <div>${result.confidence}</div>
+                                    <div class="confidence-bar">
+                                        <div class="confidence-fill" style="width: ${parseFloat(result.confidence) * 100}%"></div>
+                                    </div>
+                                </td>
+                            `;
+                        }
+                        
+                        allResultsBody.appendChild(row);
+                    });
                 }
             } catch (error) {
-                outputDiv.innerHTML = `<div class="status error">Request failed: ${error.message}</div>`;
+                allResultsBody.innerHTML = `<tr><td colspan="3" class="error">Request failed: ${error.message}</td></tr>`;
+            } finally {
+                predictAllBtn.disabled = false;
             }
+        });
+        
+        // Individual file prediction
+        document.querySelectorAll('.predict-btn').forEach(button => {
+            button.addEventListener('click', async () => {
+                const filename = button.getAttribute('data-filename');
+                const resultDiv = document.getElementById(`result-${filename}`);
+                
+                button.disabled = true;
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = 'Processing...';
+                
+                try {
+                    const response = await fetch(`/predict/${filename}`);
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        resultDiv.innerHTML = `<div class="error">${data.error}</div>`;
+                    } else {
+                        let topPredictionsHtml = '';
+                        if (data.top_predictions && data.top_predictions.length > 0) {
+                            topPredictionsHtml = '<div><strong>Top predictions:</strong><ul>';
+                            data.top_predictions.forEach(pred => {
+                                topPredictionsHtml += `<li>${pred.maqam}: ${pred.confidence}</li>`;
+                            });
+                            topPredictionsHtml += '</ul></div>';
+                        }
+                        
+                        resultDiv.innerHTML = `
+                            <div><strong>Predicted Maqam:</strong> ${data.prediction}</div>
+                            <div><strong>Confidence:</strong> ${data.confidence}</div>
+                            <div class="confidence-bar">
+                                <div class="confidence-fill" style="width: ${parseFloat(data.confidence) * 100}%"></div>
+                            </div>
+                            ${topPredictionsHtml}
+                        `;
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = `<div class="error">Request failed: ${error.message}</div>`;
+                } finally {
+                    button.disabled = false;
+                }
+            });
         });
     </script>
 </body>
