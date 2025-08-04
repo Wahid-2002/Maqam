@@ -9,6 +9,7 @@
         button:hover { background: #45a049; }
         #output { margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; }
         .error { color: red; }
+        .status { margin-bottom: 10px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -22,7 +23,7 @@
     <script>
         document.getElementById('runTests').addEventListener('click', async () => {
             const outputDiv = document.getElementById('output');
-            outputDiv.textContent = 'Running tests...';
+            outputDiv.innerHTML = '<div class="status">Running tests...</div>';
             
             try {
                 const response = await fetch('/run_tests', {
@@ -30,18 +31,39 @@
                     headers: { 'Content-Type': 'application/json' }
                 });
                 
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    // If not JSON, get the text and display it
+                    const text = await response.text();
+                    outputDiv.innerHTML = `
+                        <div class="status error">Error: Server returned non-JSON response</div>
+                        <div>Status: ${response.status} ${response.statusText}</div>
+                        <div>Content-Type: ${contentType}</div>
+                        <div>Response:</div>
+                        <pre>${text}</pre>
+                    `;
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 if (data.status === 'success') {
-                    outputDiv.textContent = data.output;
+                    outputDiv.innerHTML = `
+                        <div class="status">Tests completed successfully</div>
+                        <div>${data.output}</div>
+                    `;
                     if (data.error) {
-                        outputDiv.innerHTML += '\n\n<span class="error">Errors:\n' + data.error + '</span>';
+                        outputDiv.innerHTML += `<div class="error">Warnings/Errors:\n${data.error}</div>`;
                     }
                 } else {
-                    outputDiv.innerHTML = '<span class="error">Error: ' + data.error + '</span>';
+                    outputDiv.innerHTML = `
+                        <div class="status error">Error: ${data.error}</div>
+                        ${data.output ? `<div>Output:\n${data.output}</div>` : ''}
+                    `;
                 }
             } catch (error) {
-                outputDiv.innerHTML = '<span class="error">Request failed: ' + error.message + '</span>';
+                outputDiv.innerHTML = `<div class="status error">Request failed: ${error.message}</div>`;
             }
         });
     </script>
