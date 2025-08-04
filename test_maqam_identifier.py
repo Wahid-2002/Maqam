@@ -5,8 +5,21 @@ import joblib
 import json
 
 # Load the trained model
+model_path = 'maqam_identifier_model.joblib'
+if not os.path.exists(model_path):
+    print(f"Error: Model file not found at {model_path}")
+    print("Please run the training script first.")
+    exit(1)
+
 print("Loading trained model...")
-model = joblib.load('maqam_identifier_model.joblib')
+try:
+    model = joblib.load(model_path)
+    print("Model loaded successfully")
+except Exception as e:
+    print(f"Error loading model: {e}")
+    exit(1)
+
+# Rest of the script remains the same...
 
 # Define the maqams (same as in training)
 maqams = ['hijaz', 'rast', 'bayati', 'saba', 'nahawand', 'kurd', 'ajam', 'sikah']
