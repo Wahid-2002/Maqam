@@ -7,8 +7,13 @@ import threading
 import time
 import subprocess
 import sys
+import logging
 
 app = Flask(__name__)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Define the maqams
 maqams = ['hijaz', 'rast', 'bayati', 'saba', 'nahawand', 'kurd', 'ajam', 'sikah']
@@ -65,7 +70,7 @@ def extract_features(file_path):
         
         return features
     except Exception as e:
-        print(f"Error processing {file_path}: {e}")
+        logger.error(f"Error processing {file_path}: {e}")
         return None
 
 # Function to load the dataset
@@ -98,12 +103,15 @@ def train_model():
         training_status = "Loading dataset..."
     
     try:
+        logger.info("Starting model training")
         # Load the dataset
         X, y = load_dataset()
         training_status = f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features"
+        logger.info(training_status)
         
         # Train a Random Forest classifier
         training_status = "Training Random Forest classifier..."
+        logger.info(training_status)
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.model_selection import train_test_split
         
@@ -111,18 +119,21 @@ def train_model():
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
         # Train the model
-        clf = RandomForestClassifier(n_estimators=100, random_state=42)
+        clf = RandomForestClassifier(n_estimators=50, random_state=42)  # Reduced from 100 to 50 for faster training
         clf.fit(X_train, y_train)
         
         # Save the model
         joblib.dump(clf, 'maqam_identifier_model.joblib')
+        logger.info("Model saved")
         
         # Load the model into memory
         model = clf
         
         training_status = "Model trained and saved successfully"
+        logger.info(training_status)
         return "Model trained successfully"
     except Exception as e:
+        logger.error(f"Error in training: {str(e)}")
         training_status = f"Error: {str(e)}"
         return f"Error: {str(e)}"
     finally:
@@ -135,12 +146,12 @@ def initialize_model():
     try:
         if os.path.exists('maqam_identifier_model.joblib'):
             model = joblib.load('maqam_identifier_model.joblib')
-            print("Model loaded successfully")
+            logger.info("Model loaded successfully")
         else:
-            print("Model not found, training...")
+            logger.info("Model not found, training...")
             train_model()
     except Exception as e:
-        print(f"Error initializing model: {e}")
+        logger.error(f"Error initializing model: {e}")
 
 # Routes
 @app.route('/')
@@ -253,6 +264,7 @@ def run_tests():
             'error': ''
         })
     except Exception as e:
+        logger.error(f"Error in run_tests: {str(e)}")
         return jsonify({
             'status': 'error',
             'output': '',
@@ -275,10 +287,17 @@ def start_training():
 
 @app.route('/training_status')
 def get_training_status():
-    return jsonify({
-        'status': training_status,
-        'in_progress': training_in_progress
-    })
+    try:
+        return jsonify({
+            'status': training_status,
+            'in_progress': training_in_progress
+        })
+    except Exception as e:
+        logger.error(f"Error in training_status: {str(e)}")
+        return jsonify({
+            'status': f"Error: {str(e)}",
+            'in_progress': False
+        })
 
 @app.route('/predict/<filename>')
 def predict(filename):
@@ -325,6 +344,7 @@ def predict(filename):
             'top_predictions': top_predictions
         })
     except Exception as e:
+        logger.error(f"Error in predict: {str(e)}")
         return jsonify({'error': f'Prediction error: {str(e)}'})
 
 @app.route('/predict_all', methods=['POST'])
@@ -366,12 +386,22 @@ def predict_all():
                         'confidence': f"{confidence:.2%}"
                     })
                 except Exception as e:
+                    logger.error(f"Error processing {filename}: {str(e)}")
                     results.append({
                         'file': filename,
                         'error': str(e)
                     })
     
     return jsonify({'results': results})
+
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({'error': 'Endpoint not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
     # Initialize the model
