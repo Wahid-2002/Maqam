@@ -1,1 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Maqam Identifier Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        button { padding: 10px 20px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background: #45a049; }
+        #output { margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Maqam Identifier Test</h1>
+        <p>This will train the model (if needed) and run tests on your dataset.</p>
+        <button id="runTests">Run Tests</button>
+        <div id="output"></div>
+    </div>
 
+    <script>
+        document.getElementById('runTests').addEventListener('click', async () => {
+            const outputDiv = document.getElementById('output');
+            outputDiv.textContent = 'Running tests...';
+            
+            try {
+                const response = await fetch('/run_tests', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    outputDiv.textContent = data.output;
+                    if (data.error) {
+                        outputDiv.innerHTML += '\n\n<span class="error">Errors:\n' + data.error + '</span>';
+                    }
+                } else {
+                    outputDiv.innerHTML = '<span class="error">Error: ' + data.error + '</span>';
+                }
+            } catch (error) {
+                outputDiv.innerHTML = '<span class="error">Request failed: ' + error.message + '</span>';
+            }
+        });
+    </script>
+</body>
+</html>
