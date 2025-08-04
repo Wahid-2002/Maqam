@@ -5,6 +5,8 @@ import numpy as np
 import joblib
 import threading
 import time
+import subprocess
+import sys
 
 app = Flask(__name__)
 
@@ -152,6 +154,110 @@ def index():
                      if f.endswith('.mp3') or f.endswith('.wav')]
     
     return render_template('index.html', test_files=test_files)
+
+@app.route('/run_tests', methods=['POST'])
+def run_tests():
+    global model
+    
+    try:
+        # First, check if model exists, if not train it
+        if model is None and not os.path.exists('maqam_identifier_model.joblib'):
+            train_result = train_model()
+            if "Error" in train_result:
+                return jsonify({
+                    'status': 'error',
+                    'output': '',
+                    'error': f"Training failed: {train_result}"
+                })
+        
+        # Load the model if not already loaded
+        if model is None:
+            model = joblib.load('maqam_identifier_model.joblib')
+        
+        # Get test files
+        test_dir = 'arabic_music_dataset/test'
+        if not os.path.exists(test_dir):
+            return jsonify({
+                'status': 'error',
+                'output': '',
+                'error': 'Test directory not found'
+            })
+        
+        test_files = [f for f in os.listdir(test_dir) 
+                     if f.endswith('.mp3') or f.endswith('.wav')]
+        
+        if len(test_files) == 0:
+            return jsonify({
+                'status': 'error',
+                'output': '',
+                'error': 'No test files found'
+            })
+        
+        # Process each test file
+        results = []
+        for filename in test_files:
+            file_path = os.path.join(test_dir, filename)
+            
+            # Extract features
+            features = extract_features(file_path)
+            if features is None:
+                results.append({
+                    'file': filename,
+                    'error': 'Could not extract features'
+                })
+                continue
+            
+            # Reshape features for prediction
+            features = features.reshape(1, -1)
+            
+            # Make prediction
+            prediction = model.predict(features)[0]
+            
+            # Get confidence scores
+            confidence_scores = model.predict_proba(features)[0]
+            confidence = confidence_scores[list(model.classes_).index(prediction)]
+            
+            results.append({
+                'file': filename,
+                'prediction': prediction,
+                'confidence': f"{confidence:.2%}"
+            })
+        
+        # Format output
+        output = "Test Results:\n"
+        output += "=" * 50 + "\n"
+        
+        for result in results:
+            if 'error' in result:
+                output += f"File: {result['file']}\n"
+                output += f"Error: {result['error']}\n"
+                output += "-" * 30 + "\n"
+            else:
+                output += f"File: {result['file']}\n"
+                output += f"Predicted Maqam: {result['prediction']}\n"
+                output += f"Confidence: {result['confidence']}\n"
+                output += "-" * 30 + "\n"
+        
+        # Add summary
+        output += "\nSummary:\n"
+        predictions = [r['prediction'] for r in results if 'prediction' in r]
+        if predictions:
+            unique, counts = np.unique(predictions, return_counts=True)
+            for maqam, count in zip(unique, counts):
+                percentage = (count / len(predictions)) * 100
+                output += f"{maqam}: {count} files ({percentage:.1f}%)\n"
+        
+        return jsonify({
+            'status': 'success',
+            'output': output,
+            'error': ''
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'output': '',
+            'error': f"Server error: {str(e)}"
+        })
 
 @app.route('/train', methods=['POST'])
 def start_training():
