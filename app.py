@@ -8,6 +8,7 @@ import time
 import subprocess
 import sys
 import logging
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -23,6 +24,10 @@ model = None
 model_lock = threading.Lock()
 training_in_progress = False
 training_status = ""
+training_progress = 0
+training_start_time = None
+training_end_time = None
+training_error = None
 
 # Function to extract features from an audio file
 def extract_features(file_path):
@@ -78,6 +83,18 @@ def load_dataset():
     features = []
     labels = []
     
+    total_files = 0
+    processed_files = 0
+    
+    # Count total files first for progress tracking
+    for maqam in maqams:
+        maqam_path = os.path.join('arabic_music_dataset', maqam)
+        if os.path.exists(maqam_path):
+            for file in os.listdir(maqam_path):
+                if file.endswith('.mp3') or file.endswith('.wav'):
+                    total_files += 1
+    
+    # Process files
     for maqam in maqams:
         maqam_path = os.path.join('arabic_music_dataset', maqam)
         if os.path.exists(maqam_path):
@@ -88,23 +105,34 @@ def load_dataset():
                     if feature_vector is not None:
                         features.append(feature_vector)
                         labels.append(maqam)
+                    
+                    processed_files += 1
+                    # Update progress
+                    global training_progress
+                    training_progress = int((processed_files / total_files) * 100)
     
     return np.array(features), np.array(labels)
 
 # Function to train the model
 def train_model():
-    global model, training_in_progress, training_status
+    global model, training_in_progress, training_status, training_progress, training_start_time, training_end_time, training_error
     
     with model_lock:
         if training_in_progress:
             return "Training already in progress"
         
         training_in_progress = True
-        training_status = "Loading dataset..."
+        training_status = "Initializing training..."
+        training_progress = 0
+        training_start_time = datetime.now()
+        training_end_time = None
+        training_error = None
     
     try:
         logger.info("Starting model training")
+        
         # Load the dataset
+        training_status = "Loading dataset..."
         X, y = load_dataset()
         training_status = f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features"
         logger.info(training_status)
@@ -112,14 +140,16 @@ def train_model():
         # Train a Random Forest classifier
         training_status = "Training Random Forest classifier..."
         logger.info(training_status)
+        training_progress = 50  # Update progress
+        
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.model_selection import train_test_split
         
         # Split the dataset
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
-        # Train the model
-        clf = RandomForestClassifier(n_estimators=50, random_state=42)  # Reduced from 100 to 50 for faster training
+        # Train the model with reduced complexity for faster training
+        clf = RandomForestClassifier(n_estimators=30, max_depth=10, random_state=42)
         clf.fit(X_train, y_train)
         
         # Save the model
@@ -130,11 +160,16 @@ def train_model():
         model = clf
         
         training_status = "Model trained and saved successfully"
+        training_progress = 100
         logger.info(training_status)
+        
+        training_end_time = datetime.now()
         return "Model trained successfully"
     except Exception as e:
         logger.error(f"Error in training: {str(e)}")
         training_status = f"Error: {str(e)}"
+        training_error = str(e)
+        training_end_time = datetime.now()
         return f"Error: {str(e)}"
     finally:
         with model_lock:
@@ -273,7 +308,10 @@ def run_tests():
 
 @app.route('/train', methods=['POST'])
 def start_training():
-    global training_status
+    global training_status, training_error
+    
+    # Reset error state
+    training_error = None
     
     # Start training in a separate thread
     thread = threading.Thread(target=train_model)
@@ -288,15 +326,32 @@ def start_training():
 @app.route('/training_status')
 def get_training_status():
     try:
+        # Calculate elapsed time
+        elapsed_time = ""
+        if training_start_time:
+            if training_end_time:
+                elapsed = (training_end_time - training_start_time).total_seconds()
+            else:
+                elapsed = (datetime.now() - training_start_time).total_seconds()
+            
+            minutes, seconds = divmod(int(elapsed), 60)
+            elapsed_time = f"{minutes}m {seconds}s"
+        
         return jsonify({
             'status': training_status,
-            'in_progress': training_in_progress
+            'in_progress': training_in_progress,
+            'progress': training_progress,
+            'elapsed_time': elapsed_time,
+            'error': training_error
         })
     except Exception as e:
         logger.error(f"Error in training_status: {str(e)}")
         return jsonify({
             'status': f"Error: {str(e)}",
-            'in_progress': False
+            'in_progress': False,
+            'progress': 0,
+            'elapsed_time': "",
+            'error': str(e)
         })
 
 @app.route('/predict/<filename>')
