@@ -24,17 +24,33 @@
         .predictions-table th { background-color: #f2f2f2; }
         .confidence-bar { height: 10px; background-color: #e0e0e0; border-radius: 5px; margin-top: 5px; }
         .confidence-fill { height: 100%; background-color: #4CAF50; border-radius: 5px; }
+        .description { background-color: #f0f7ff; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .description h3 { margin-top: 0; color: #2c3e50; }
+        .description ol { padding-left: 20px; }
+        .description li { margin-bottom: 8px; }
+        #output { margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; border-radius: 4px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Maqam Identifier</h1>
         
+        <div class="description">
+            <h3>How This Works</h3>
+            <ol>
+                <li><strong>Training Stage:</strong> The program first trains a machine learning model using the maqam samples from your dataset (hijaz, rast, bayati, etc.). This model learns the unique characteristics of each maqam.</li>
+                <li><strong>Prediction Stage:</strong> The trained model then analyzes each test file in the test folder and predicts which maqam it belongs to, along with a confidence score.</li>
+            </ol>
+            <p><strong>Note:</strong> The first time you run the tests, the model will be trained. Subsequent runs will use the existing model unless you retrain it.</p>
+        </div>
+        
         <div class="section">
-            <div class="section-title">Model Training</div>
-            <button id="trainBtn">Train Model</button>
+            <div class="section-title">Model Training & Testing</div>
+            <button id="runTestsBtn">Run Tests (Train if needed & Test all files)</button>
+            <button id="trainBtn">Train Model Only</button>
             <button id="predictAllBtn">Predict All Test Files</button>
             <div id="trainingStatus" class="training-status" style="display: none;"></div>
+            <div id="output" style="display: none;"></div>
         </div>
         
         <div class="section">
@@ -67,6 +83,38 @@
     </div>
 
     <script>
+        // Run Tests functionality (trains if needed and tests all files)
+        document.getElementById('runTestsBtn').addEventListener('click', async () => {
+            const runTestsBtn = document.getElementById('runTestsBtn');
+            const outputDiv = document.getElementById('output');
+            
+            runTestsBtn.disabled = true;
+            outputDiv.style.display = 'block';
+            outputDiv.textContent = 'Running tests...';
+            
+            try {
+                const response = await fetch('/run_tests', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    outputDiv.textContent = data.output;
+                    if (data.error) {
+                        outputDiv.innerHTML += '\n\n<span class="error">Warnings/Errors:\n' + data.error + '</span>';
+                    }
+                } else {
+                    outputDiv.innerHTML = '<span class="error">Error: ' + data.error + '</span>';
+                }
+            } catch (error) {
+                outputDiv.innerHTML = '<span class="error">Request failed: ' + error.message + '</span>';
+            } finally {
+                runTestsBtn.disabled = false;
+            }
+        });
+        
         // Training functionality
         document.getElementById('trainBtn').addEventListener('click', async () => {
             const trainBtn = document.getElementById('trainBtn');
