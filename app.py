@@ -45,42 +45,59 @@ def log_training(message):
 # Function to extract minimal features from an audio file
 def extract_features(file_path):
     try:
-        log_training(f"Processing {file_path}...")
+        # Load 10 seconds of audio at 22050 Hz (better quality)
+        y, sr = librosa.load(file_path, sr=22050, duration=10)
         
-        # Check if file exists
-        if not os.path.exists(file_path):
-            log_training(f"File not found: {file_path}")
-            return None
-        
-        # Get file size
-        file_size = os.path.getsize(file_path)
-        log_training(f"File size: {file_size / (1024*1024):.2f} MB")
-        
-        # Load only 5 seconds of audio at 11025 Hz (half the sample rate)
-        y, sr = librosa.load(file_path, sr=11025, duration=5)
-        log_training(f"Loaded audio: {len(y)} samples at {sr} Hz")
-        
-        # Extract only chroma features (most important for maqam identification)
+        # 1. Chroma features (12 features)
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
         chroma_mean = np.mean(chroma, axis=1)
-        log_training(f"Extracted chroma features: {chroma_mean.shape}")
+        chroma_std = np.std(chroma, axis=1)
         
-        # Extract only 5 MFCCs (reduced from 13)
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=5)
+        # 2. MFCC features (20 features)
+        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
         mfcc_mean = np.mean(mfccs, axis=1)
-        log_training(f"Extracted MFCC features: {mfcc_mean.shape}")
+        mfcc_std = np.std(mfccs, axis=1)
         
-        # Combine features (only 12 + 5 = 17 features total)
-        features = np.concatenate([chroma_mean, mfcc_mean])
-        log_training(f"Combined features: {features.shape}")
+        # 3. Spectral features (4 features)
+        spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)
+        spectral_centroid_mean = np.mean(spectral_centroids)
+        spectral_centroid_std = np.std(spectral_centroids)
+        
+        spectral_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
+        spectral_bandwidth_mean = np.mean(spectral_bandwidth)
+        spectral_bandwidth_std = np.std(spectral_bandwidth)
+        
+        # 4. Spectral contrast (6 features)
+        spectral_contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
+        spectral_contrast_mean = np.mean(spectral_contrast, axis=1)
+        
+        # 5. Tonnetz (6 features)
+        tonnetz = librosa.feature.tonnetz(y=y, sr=sr)
+        tonnetz_mean = np.mean(tonnetz, axis=1)
+        
+        # 6. Tempo and beat features (1 feature)
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        
+        # 7. Zero crossing rate (1 feature)
+        zcr = librosa.feature.zero_crossing_rate(y)
+        zcr_mean = np.mean(zcr)
+        
+        # Combine all features (12+12+20+20+4+6+6+1+1 = 82 features)
+        features = np.concatenate([
+            chroma_mean, chroma_std,
+            mfcc_mean, mfcc_std,
+            [spectral_centroid_mean, spectral_centroid_std],
+            [spectral_bandwidth_mean, spectral_bandwidth_std],
+            spectral_contrast_mean,
+            tonnetz_mean,
+            [tempo],
+            [zcr_mean]
+        ])
         
         return features
     except Exception as e:
-        error_msg = f"Error processing {file_path}: {str(e)}"
-        log_training(error_msg)
-        logger.error(error_msg)
+        logger.error(f"Error processing {file_path}: {e}")
         return None
-
 # Function to load the dataset with batching
 def load_dataset():
     global training_files_processed, training_total_files
