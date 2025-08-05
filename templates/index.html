@@ -33,6 +33,7 @@
         #output { margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; border-radius: 4px; }
         .status-info { display: flex; justify-content: space-between; margin-bottom: 5px; }
         .status-details { font-size: 0.9em; color: #666; margin-top: 5px; }
+        .warning { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 4px; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -42,10 +43,10 @@
         <div class="description">
             <h3>How This Works</h3>
             <ol>
-                <li><strong>Training Stage:</strong> The program first trains a machine learning model using the maqam samples from your dataset (hijaz, rast, bayati, etc.). This model learns the unique characteristics of each maqam.</li>
-                <li><strong>Prediction Stage:</strong> The trained model then analyzes each test file in the test folder and predicts which maqam it belongs to, along with a confidence score.</li>
+                <li><strong>Training Stage:</strong> The program trains a lightweight machine learning model using the maqam samples from your dataset.</li>
+                <li><strong>Prediction Stage:</strong> The trained model analyzes each test file and predicts which maqam it belongs to.</li>
             </ol>
-            <p><strong>Note:</strong> The first time you run the tests, the model will be trained. Subsequent runs will use the existing model unless you retrain it.</p>
+            <p><strong>Note:</strong> This version uses a simplified model to work within resource constraints.</p>
         </div>
         
         <div class="section">
@@ -149,9 +150,10 @@
             const statusDiv = document.getElementById('trainingStatus');
             const trainBtn = document.getElementById('trainBtn');
             let consecutiveErrors = 0;
-            const maxConsecutiveErrors = 5;
+            const maxConsecutiveErrors = 3;
             let lastProgress = 0;
             let stuckCounter = 0;
+            let lastUpdateTime = Date.now();
             
             const interval = setInterval(async () => {
                 try {
@@ -173,14 +175,15 @@
                     
                     // Reset error counter on successful response
                     consecutiveErrors = 0;
+                    lastUpdateTime = Date.now();
                     
                     const data = await response.json();
                     
                     // Check if progress is stuck
                     if (data.progress === lastProgress && data.in_progress) {
                         stuckCounter++;
-                        if (stuckCounter > 10) { // If stuck for 20 seconds (10 * 2s intervals)
-                            statusDiv.innerHTML += '<div class="error">Warning: Training appears to be stuck. Progress has not changed for 20 seconds.</div>';
+                        if (stuckCounter > 15) { // If stuck for 30 seconds (15 * 2s intervals)
+                            statusDiv.innerHTML += '<div class="warning">Warning: Training appears to be stuck. Progress has not changed for 30 seconds.</div>';
                         }
                     } else {
                         stuckCounter = 0;
@@ -229,6 +232,15 @@
                     }
                 }
             }, 2000);
+            
+            // Safety timeout: stop polling after 10 minutes
+            setTimeout(() => {
+                clearInterval(interval);
+                if (trainBtn.disabled) {
+                    statusDiv.innerHTML += '<div class="warning">Training timed out after 10 minutes. Please check the server logs.</div>';
+                    trainBtn.disabled = false;
+                }
+            }, 600000); // 10 minutes
         }
         
         // Predict all files
