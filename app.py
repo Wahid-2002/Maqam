@@ -9,7 +9,7 @@ import subprocess
 import sys
 import logging
 from datetime import datetime
-from sklearn.tree import DecisionTreeClassifier  # Much lighter than Random Forest
+from sklearn.tree import DecisionTreeClassifier
 
 app = Flask(__name__)
 
@@ -31,27 +31,54 @@ training_end_time = None
 training_error = None
 training_files_processed = 0
 training_total_files = 0
+training_log = []
+
+# Function to log training progress
+def log_training(message):
+    global training_log
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    log_entry = f"[{timestamp}] {message}"
+    training_log.append(log_entry)
+    logger.info(log_entry)
+    return log_entry
 
 # Function to extract minimal features from an audio file
 def extract_features(file_path):
     try:
+        log_training(f"Processing {file_path}...")
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            log_training(f"File not found: {file_path}")
+            return None
+        
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        log_training(f"File size: {file_size / (1024*1024):.2f} MB")
+        
         # Load only 5 seconds of audio at 11025 Hz (half the sample rate)
         y, sr = librosa.load(file_path, sr=11025, duration=5)
+        log_training(f"Loaded audio: {len(y)} samples at {sr} Hz")
         
         # Extract only chroma features (most important for maqam identification)
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
         chroma_mean = np.mean(chroma, axis=1)
+        log_training(f"Extracted chroma features: {chroma_mean.shape}")
         
         # Extract only 5 MFCCs (reduced from 13)
         mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=5)
         mfcc_mean = np.mean(mfccs, axis=1)
+        log_training(f"Extracted MFCC features: {mfcc_mean.shape}")
         
         # Combine features (only 12 + 5 = 17 features total)
         features = np.concatenate([chroma_mean, mfcc_mean])
+        log_training(f"Combined features: {features.shape}")
         
         return features
     except Exception as e:
-        logger.error(f"Error processing {file_path}: {e}")
+        error_msg = f"Error processing {file_path}: {str(e)}"
+        log_training(error_msg)
+        logger.error(error_msg)
         return None
 
 # Function to load the dataset with batching
@@ -66,9 +93,13 @@ def load_dataset():
     for maqam in maqams:
         maqam_path = os.path.join('arabic_music_dataset', maqam)
         if os.path.exists(maqam_path):
-            for file in os.listdir(maqam_path):
-                if file.endswith('.mp3') or file.endswith('.wav'):
-                    training_total_files += 1
+            files = [f for f in os.listdir(maqam_path) if f.endswith('.mp3') or f.endswith('.wav')]
+            training_total_files += len(files)
+            log_training(f"Found {len(files)} files in {maqam_path}")
+        else:
+            log_training(f"Directory not found: {maqam_path}")
+    
+    log_training(f"Total files to process: {training_total_files}")
     
     # Process files with memory management
     training_files_processed = 0
@@ -87,21 +118,26 @@ def load_dataset():
                     if feature_vector is not None:
                         features.append(feature_vector)
                         labels.append(maqam)
+                        log_training(f"Successfully processed {file_path}")
+                    else:
+                        log_training(f"Failed to extract features from {file_path}")
                     
                     training_files_processed += 1
                     # Update progress
                     training_progress = int((training_files_processed / training_total_files) * 100)
+                    log_training(f"Progress: {training_progress}% ({training_files_processed}/{training_total_files})")
                     
                     # Force garbage collection every 5 files
                     if training_files_processed % 5 == 0:
                         import gc
                         gc.collect()
     
+    log_training(f"Finished processing. Extracted features from {len(features)} files.")
     return np.array(features), np.array(labels)
 
 # Function to train the model
 def train_model():
-    global model, training_in_progress, training_status, training_progress, training_start_time, training_end_time, training_error
+    global model, training_in_progress, training_status, training_progress, training_start_time, training_end_time, training_error, training_log
     
     with model_lock:
         if training_in_progress:
@@ -115,9 +151,10 @@ def train_model():
         training_error = None
         training_files_processed = 0
         training_total_files = 0
+        training_log = []
     
     try:
-        logger.info("Starting model training")
+        log_training("Starting model training")
         
         # Load the dataset
         training_status = "Loading dataset..."
@@ -127,40 +164,44 @@ def train_model():
             raise Exception("No valid audio files found in the dataset")
         
         training_status = f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features"
-        logger.info(training_status)
+        log_training(training_status)
         
         # Train a simple Decision Tree classifier (much lighter than Random Forest)
         training_status = "Training Decision Tree classifier..."
-        logger.info(training_status)
+        log_training("Training Decision Tree classifier...")
         training_progress = 70  # Update progress
         
         from sklearn.model_selection import train_test_split
         
         # Split the dataset
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        log_training(f"Split dataset: {len(X_train)} training, {len(X_test)} test samples")
         
         # Train a very simple model
         clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # Very shallow tree
         clf.fit(X_train, y_train)
+        log_training("Model trained successfully")
         
         # Save the model
         joblib.dump(clf, 'maqam_identifier_model.joblib')
-        logger.info("Model saved")
+        log_training("Model saved")
         
         # Load the model into memory
         model = clf
         
         training_status = "Model trained and saved successfully"
         training_progress = 100
-        logger.info(training_status)
+        log_training("Training completed successfully")
         
         training_end_time = datetime.now()
         return "Model trained successfully"
     except Exception as e:
-        logger.error(f"Error in training: {str(e)}")
+        error_msg = f"Error in training: {str(e)}"
+        logger.error(error_msg)
         training_status = f"Error: {str(e)}"
         training_error = str(e)
         training_end_time = datetime.now()
+        log_training(error_msg)
         return f"Error: {str(e)}"
     finally:
         with model_lock:
@@ -299,10 +340,11 @@ def run_tests():
 
 @app.route('/train', methods=['POST'])
 def start_training():
-    global training_status, training_error
+    global training_status, training_error, training_log
     
     # Reset error state
     training_error = None
+    training_log = []
     
     # Start training in a separate thread
     thread = threading.Thread(target=train_model)
@@ -335,6 +377,9 @@ def get_training_status():
             if elapsed > 0:
                 files_per_second = f"{training_files_processed / elapsed:.2f} files/sec"
         
+        # Get recent log entries (last 10)
+        recent_logs = training_log[-10:] if training_log else []
+        
         return jsonify({
             'status': training_status,
             'in_progress': training_in_progress,
@@ -343,7 +388,8 @@ def get_training_status():
             'files_processed': training_files_processed,
             'total_files': training_total_files,
             'files_per_second': files_per_second,
-            'error': training_error
+            'error': training_error,
+            'logs': recent_logs
         })
     except Exception as e:
         logger.error(f"Error in training_status: {str(e)}")
@@ -355,7 +401,8 @@ def get_training_status():
             'files_processed': 0,
             'total_files': 0,
             'files_per_second': "",
-            'error': str(e)
+            'error': str(e),
+            'logs': [f"Error: {str(e)}"]
         })
 
 @app.route('/predict/<filename>')
