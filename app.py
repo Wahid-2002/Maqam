@@ -548,3 +548,26 @@ log_training(f"Mean CV accuracy: {cv_scores.mean():.2f} (+/- {cv_scores.std() * 
 
 # Train the model on the full training set
 clf.fit(X_train, y_train)
+def augment_audio(y, sr):
+    """Apply audio augmentation techniques"""
+    augmented = []
+    
+    # Original
+    augmented.append(y)
+    
+    # Pitch shift
+    for n_steps in [-2, -1, 1, 2]:
+        y_shift = librosa.effects.pitch_shift(y=y, sr=sr, n_steps=n_steps)
+        augmented.append(y_shift)
+    
+    # Time stretch
+    for rate in [0.8, 1.2]:
+        y_stretch = librosa.effects.time_stretch(y=y, rate=rate)
+        augmented.append(y_stretch)
+    
+    # Add noise
+    noise = np.random.randn(len(y))
+    y_noise = y + 0.005 * noise
+        augmented.append(y_noise)
+    
+    return augmented
