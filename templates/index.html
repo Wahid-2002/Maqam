@@ -32,6 +32,7 @@
         .description li { margin-bottom: 8px; }
         #output { margin-top: 20px; padding: 15px; background: #f8f8f8; border: 1px solid #ddd; white-space: pre-wrap; border-radius: 4px; }
         .status-info { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .status-details { font-size: 0.9em; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -148,7 +149,9 @@
             const statusDiv = document.getElementById('trainingStatus');
             const trainBtn = document.getElementById('trainBtn');
             let consecutiveErrors = 0;
-            const maxConsecutiveErrors = 3;
+            const maxConsecutiveErrors = 5;
+            let lastProgress = 0;
+            let stuckCounter = 0;
             
             const interval = setInterval(async () => {
                 try {
@@ -173,13 +176,34 @@
                     
                     const data = await response.json();
                     
+                    // Check if progress is stuck
+                    if (data.progress === lastProgress && data.in_progress) {
+                        stuckCounter++;
+                        if (stuckCounter > 10) { // If stuck for 20 seconds (10 * 2s intervals)
+                            statusDiv.innerHTML += '<div class="error">Warning: Training appears to be stuck. Progress has not changed for 20 seconds.</div>';
+                        }
+                    } else {
+                        stuckCounter = 0;
+                    }
+                    lastProgress = data.progress;
+                    
                     // Update status display
                     let statusHtml = `<div>${data.status}</div>`;
                     
                     if (data.elapsed_time) {
-                        statusHtml += `<div class="status-info"><span>Elapsed time: ${data.elapsed_time}</span><span>Progress: ${data.progress}%</span></div>`;
+                        statusHtml += `<div class="status-info">
+                            <span>Elapsed: ${data.elapsed_time}</span>
+                            <span>Progress: ${data.progress}%</span>
+                        </div>`;
                     } else {
                         statusHtml += `<div>Progress: ${data.progress}%</div>`;
+                    }
+                    
+                    if (data.files_processed !== undefined && data.total_files !== undefined) {
+                        statusHtml += `<div class="status-details">
+                            Files: ${data.files_processed}/${data.total_files}
+                            ${data.files_per_second ? `(${data.files_per_second})` : ''}
+                        </div>`;
                     }
                     
                     statusHtml += `<div class="progress-bar"><div class="progress-fill" style="width: ${data.progress}%"></div></div>`;
