@@ -28,12 +28,14 @@ training_progress = 0
 training_start_time = None
 training_end_time = None
 training_error = None
+training_files_processed = 0
+training_total_files = 0
 
 # Function to extract features from an audio file
 def extract_features(file_path):
     try:
-        # Load the audio file
-        y, sr = librosa.load(file_path, sr=22050)
+        # Load the audio file with a shorter duration to speed up processing
+        y, sr = librosa.load(file_path, sr=22050, duration=30)  # Load only first 30 seconds
         
         # Extract features
         # 1. Chroma features (for maqam identification)
@@ -80,36 +82,41 @@ def extract_features(file_path):
 
 # Function to load the dataset
 def load_dataset():
+    global training_files_processed, training_total_files
+    
     features = []
     labels = []
     
-    total_files = 0
-    processed_files = 0
-    
     # Count total files first for progress tracking
+    training_total_files = 0
     for maqam in maqams:
         maqam_path = os.path.join('arabic_music_dataset', maqam)
         if os.path.exists(maqam_path):
             for file in os.listdir(maqam_path):
                 if file.endswith('.mp3') or file.endswith('.wav'):
-                    total_files += 1
+                    training_total_files += 1
     
     # Process files
+    training_files_processed = 0
     for maqam in maqams:
         maqam_path = os.path.join('arabic_music_dataset', maqam)
         if os.path.exists(maqam_path):
             for file in os.listdir(maqam_path):
                 if file.endswith('.mp3') or file.endswith('.wav'):
                     file_path = os.path.join(maqam_path, file)
+                    
+                    # Update status with current file
+                    global training_status
+                    training_status = f"Processing {maqam}/{file}..."
+                    
                     feature_vector = extract_features(file_path)
                     if feature_vector is not None:
                         features.append(feature_vector)
                         labels.append(maqam)
                     
-                    processed_files += 1
+                    training_files_processed += 1
                     # Update progress
-                    global training_progress
-                    training_progress = int((processed_files / total_files) * 100)
+                    training_progress = int((training_files_processed / training_total_files) * 100)
     
     return np.array(features), np.array(labels)
 
@@ -127,6 +134,8 @@ def train_model():
         training_start_time = datetime.now()
         training_end_time = None
         training_error = None
+        training_files_processed = 0
+        training_total_files = 0
     
     try:
         logger.info("Starting model training")
@@ -134,6 +143,10 @@ def train_model():
         # Load the dataset
         training_status = "Loading dataset..."
         X, y = load_dataset()
+        
+        if len(X) == 0:
+            raise Exception("No valid audio files found in the dataset")
+        
         training_status = f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features"
         logger.info(training_status)
         
@@ -149,7 +162,7 @@ def train_model():
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
         # Train the model with reduced complexity for faster training
-        clf = RandomForestClassifier(n_estimators=30, max_depth=10, random_state=42)
+        clf = RandomForestClassifier(n_estimators=20, max_depth=8, random_state=42)
         clf.fit(X_train, y_train)
         
         # Save the model
@@ -337,11 +350,21 @@ def get_training_status():
             minutes, seconds = divmod(int(elapsed), 60)
             elapsed_time = f"{minutes}m {seconds}s"
         
+        # Calculate files per second if training is in progress
+        files_per_second = ""
+        if training_in_progress and training_files_processed > 0:
+            elapsed = (datetime.now() - training_start_time).total_seconds()
+            if elapsed > 0:
+                files_per_second = f"{training_files_processed / elapsed:.2f} files/sec"
+        
         return jsonify({
             'status': training_status,
             'in_progress': training_in_progress,
             'progress': training_progress,
             'elapsed_time': elapsed_time,
+            'files_processed': training_files_processed,
+            'total_files': training_total_files,
+            'files_per_second': files_per_second,
             'error': training_error
         })
     except Exception as e:
@@ -351,6 +374,9 @@ def get_training_status():
             'in_progress': False,
             'progress': 0,
             'elapsed_time': "",
+            'files_processed': 0,
+            'total_files': 0,
+            'files_per_second': "",
             'error': str(e)
         })
 
@@ -465,4 +491,3 @@ if __name__ == '__main__':
     # Run the app
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
-
