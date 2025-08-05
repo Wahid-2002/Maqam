@@ -10,6 +10,8 @@ import sys
 import logging
 from datetime import datetime
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, cross_val_score
 
 app = Flask(__name__)
 
@@ -42,21 +44,35 @@ def log_training(message):
     logger.info(log_entry)
     return log_entry
 
-# Function to extract minimal features from an audio file
+# Function to extract features from an audio file
 def extract_features(file_path):
     try:
+        log_training(f"Processing {file_path}...")
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            log_training(f"File not found: {file_path}")
+            return None
+        
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        log_training(f"File size: {file_size / (1024*1024):.2f} MB")
+        
         # Load 10 seconds of audio at 22050 Hz (better quality)
         y, sr = librosa.load(file_path, sr=22050, duration=10)
+        log_training(f"Loaded audio: {len(y)} samples at {sr} Hz")
         
         # 1. Chroma features (12 features)
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
         chroma_mean = np.mean(chroma, axis=1)
         chroma_std = np.std(chroma, axis=1)
+        log_training(f"Extracted chroma features: {chroma_mean.shape}")
         
         # 2. MFCC features (20 features)
         mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=20)
         mfcc_mean = np.mean(mfccs, axis=1)
         mfcc_std = np.std(mfccs, axis=1)
+        log_training(f"Extracted MFCC features: {mfcc_mean.shape}")
         
         # 3. Spectral features (4 features)
         spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)
@@ -94,10 +110,15 @@ def extract_features(file_path):
             [zcr_mean]
         ])
         
+        log_training(f"Combined features: {features.shape}")
+        
         return features
     except Exception as e:
-        logger.error(f"Error processing {file_path}: {e}")
+        error_msg = f"Error processing {file_path}: {str(e)}"
+        log_training(error_msg)
+        logger.error(error_msg)
         return None
+
 # Function to load the dataset with batching
 def load_dataset():
     global training_files_processed, training_total_files
@@ -183,27 +204,33 @@ def train_model():
         training_status = f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features"
         log_training(training_status)
         
-        # Train a simple Decision Tree classifier (much lighter than Random Forest)
-        training_status = "Training Decision Tree classifier..."
-        log_training("Training Decision Tree classifier...")
+        # Train a Random Forest classifier
+        training_status = "Training Random Forest classifier..."
+        log_training("Training Random Forest classifier...")
         training_progress = 70  # Update progress
-        
-        from sklearn.model_selection import train_test_split
         
         # Split the dataset
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         log_training(f"Split dataset: {len(X_train)} training, {len(X_test)} test samples")
         
-        # Train a very simple model
-from sklearn.ensemble import RandomForestClassifier
-clf = RandomForestClassifier(
-    n_estimators=100,  # Number of trees in the forest
-    max_depth=15,      # Maximum depth of each tree
-    min_samples_split=5,  # Minimum samples required to split a node
-    min_samples_leaf=2,   # Minimum samples required at a leaf node
-    random_state=42
-)
-
+        # Train a Random Forest model
+        clf = RandomForestClassifier(
+            n_estimators=100,  # Number of trees in the forest
+            max_depth=15,      # Maximum depth of each tree
+            min_samples_split=5,  # Minimum samples required to split a node
+            min_samples_leaf=2,   # Minimum samples required at a leaf node
+            random_state=42
+        )
+        
+        # Evaluate model using 5-fold cross-validation
+        cv_scores = cross_val_score(clf, X_train, y_train, cv=5)
+        log_training(f"Cross-validation scores: {cv_scores}")
+        log_training(f"Mean CV accuracy: {cv_scores.mean():.2f} (+/- {cv_scores.std() * 2:.2f})")
+        
+        # Train the model on the full training set
+        clf.fit(X_train, y_train)
+        log_training("Model trained successfully")
+        
         # Save the model
         joblib.dump(clf, 'maqam_identifier_model.joblib')
         log_training("Model saved")
@@ -538,36 +565,3 @@ if __name__ == '__main__':
     # Run the app
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
-# In the train_model function, after splitting the dataset:
-from sklearn.model_selection import cross_val_score
-
-# Evaluate model using 5-fold cross-validation
-cv_scores = cross_val_score(clf, X_train, y_train, cv=5)
-log_training(f"Cross-validation scores: {cv_scores}")
-log_training(f"Mean CV accuracy: {cv_scores.mean():.2f} (+/- {cv_scores.std() * 2:.2f})")
-
-# Train the model on the full training set
-clf.fit(X_train, y_train)
-def augment_audio(y, sr):
-    """Apply audio augmentation techniques"""
-    augmented = []
-    
-    # Original
-    augmented.append(y)
-    
-    # Pitch shift
-    for n_steps in [-2, -1, 1, 2]:
-        y_shift = librosa.effects.pitch_shift(y=y, sr=sr, n_steps=n_steps)
-        augmented.append(y_shift)
-    
-    # Time stretch
-    for rate in [0.8, 1.2]:
-        y_stretch = librosa.effects.time_stretch(y=y, rate=rate)
-        augmented.append(y_stretch)
-    
-    # Add noise
-    noise = np.random.randn(len(y))
-    y_noise = y + 0.005 * noise
-        augmented.append(y_noise)
-    
-    return augmented
