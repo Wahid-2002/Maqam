@@ -538,3 +538,13 @@ if __name__ == '__main__':
     # Run the app
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
+# In the train_model function, after splitting the dataset:
+from sklearn.model_selection import cross_val_score
+
+# Evaluate model using 5-fold cross-validation
+cv_scores = cross_val_score(clf, X_train, y_train, cv=5)
+log_training(f"Cross-validation scores: {cv_scores}")
+log_training(f"Mean CV accuracy: {cv_scores.mean():.2f} (+/- {cv_scores.std() * 2:.2f})")
+
+# Train the model on the full training set
+clf.fit(X_train, y_train)
