@@ -354,7 +354,7 @@ def get_training_status():
             'elapsed_time': "",
             'files_processed': 0,
             'total_files': 0,
-            'files_per_second": "",
+            'files_per_second': "",
             'error': str(e)
         })
 
