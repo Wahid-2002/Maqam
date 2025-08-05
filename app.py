@@ -195,10 +195,15 @@ def train_model():
         log_training(f"Split dataset: {len(X_train)} training, {len(X_test)} test samples")
         
         # Train a very simple model
-        clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # Very shallow tree
-        clf.fit(X_train, y_train)
-        log_training("Model trained successfully")
-        
+from sklearn.ensemble import RandomForestClassifier
+clf = RandomForestClassifier(
+    n_estimators=100,  # Number of trees in the forest
+    max_depth=15,      # Maximum depth of each tree
+    min_samples_split=5,  # Minimum samples required to split a node
+    min_samples_leaf=2,   # Minimum samples required at a leaf node
+    random_state=42
+)
+
         # Save the model
         joblib.dump(clf, 'maqam_identifier_model.joblib')
         log_training("Model saved")
