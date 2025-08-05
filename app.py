@@ -9,6 +9,7 @@ import subprocess
 import sys
 import logging
 from datetime import datetime
+from sklearn.tree import DecisionTreeClassifier  # Much lighter than Random Forest
 
 app = Flask(__name__)
 
@@ -31,56 +32,29 @@ training_error = None
 training_files_processed = 0
 training_total_files = 0
 
-# Function to extract features from an audio file
+# Function to extract minimal features from an audio file
 def extract_features(file_path):
     try:
-        # Load the audio file with a shorter duration to speed up processing
-        y, sr = librosa.load(file_path, sr=22050, duration=30)  # Load only first 30 seconds
+        # Load only 5 seconds of audio at 11025 Hz (half the sample rate)
+        y, sr = librosa.load(file_path, sr=11025, duration=5)
         
-        # Extract features
-        # 1. Chroma features (for maqam identification)
+        # Extract only chroma features (most important for maqam identification)
         chroma = librosa.feature.chroma_stft(y=y, sr=sr)
         chroma_mean = np.mean(chroma, axis=1)
-        chroma_std = np.std(chroma, axis=1)
         
-        # 2. MFCC (Mel-frequency cepstral coefficients)
-        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        # Extract only 5 MFCCs (reduced from 13)
+        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=5)
         mfcc_mean = np.mean(mfccs, axis=1)
-        mfcc_std = np.std(mfccs, axis=1)
         
-        # 3. Spectral features
-        spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)
-        spectral_centroid_mean = np.mean(spectral_centroids)
-        spectral_centroid_std = np.std(spectral_centroids)
-        
-        spectral_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)
-        spectral_bandwidth_mean = np.mean(spectral_bandwidth)
-        spectral_bandwidth_std = np.std(spectral_bandwidth)
-        
-        # 4. Tempo features
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-        
-        # 5. Tonnetz (tonal centroid features)
-        tonnetz = librosa.feature.tonnetz(y=y, sr=sr)
-        tonnetz_mean = np.mean(tonnetz, axis=1)
-        tonnetz_std = np.std(tonnetz, axis=1)
-        
-        # Combine all features
-        features = np.concatenate([
-            chroma_mean, chroma_std,
-            mfcc_mean, mfcc_std,
-            [spectral_centroid_mean, spectral_centroid_std],
-            [spectral_bandwidth_mean, spectral_bandwidth_std],
-            [tempo],
-            tonnetz_mean, tonnetz_std
-        ])
+        # Combine features (only 12 + 5 = 17 features total)
+        features = np.concatenate([chroma_mean, mfcc_mean])
         
         return features
     except Exception as e:
         logger.error(f"Error processing {file_path}: {e}")
         return None
 
-# Function to load the dataset
+# Function to load the dataset with batching
 def load_dataset():
     global training_files_processed, training_total_files
     
@@ -96,7 +70,7 @@ def load_dataset():
                 if file.endswith('.mp3') or file.endswith('.wav'):
                     training_total_files += 1
     
-    # Process files
+    # Process files with memory management
     training_files_processed = 0
     for maqam in maqams:
         maqam_path = os.path.join('arabic_music_dataset', maqam)
@@ -117,6 +91,11 @@ def load_dataset():
                     training_files_processed += 1
                     # Update progress
                     training_progress = int((training_files_processed / training_total_files) * 100)
+                    
+                    # Force garbage collection every 5 files
+                    if training_files_processed % 5 == 0:
+                        import gc
+                        gc.collect()
     
     return np.array(features), np.array(labels)
 
@@ -150,19 +129,18 @@ def train_model():
         training_status = f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features"
         logger.info(training_status)
         
-        # Train a Random Forest classifier
-        training_status = "Training Random Forest classifier..."
+        # Train a simple Decision Tree classifier (much lighter than Random Forest)
+        training_status = "Training Decision Tree classifier..."
         logger.info(training_status)
-        training_progress = 50  # Update progress
+        training_progress = 70  # Update progress
         
-        from sklearn.ensemble import RandomForestClassifier
         from sklearn.model_selection import train_test_split
         
         # Split the dataset
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
-        # Train the model with reduced complexity for faster training
-        clf = RandomForestClassifier(n_estimators=20, max_depth=8, random_state=42)
+        # Train a very simple model
+        clf = DecisionTreeClassifier(max_depth=3, random_state=42)  # Very shallow tree
         clf.fit(X_train, y_train)
         
         # Save the model
@@ -376,7 +354,7 @@ def get_training_status():
             'elapsed_time': "",
             'files_processed': 0,
             'total_files': 0,
-            'files_per_second': "",
+            'files_per_second": "",
             'error': str(e)
         })
 
